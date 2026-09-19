@@ -26,3 +26,31 @@ services:
       timeout: 10s
       start_period: 5s
       retries: 3
+
+  # Scrapes the api service's /metrics every 15s (see prometheus/prometheus.yml).
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - api
+
+  # Dashboard on top of Prometheus. Datasource and dashboard are
+  # auto-provisioned from ./grafana, no manual setup.
+  grafana:
+    image: grafana/grafana:13.2.2
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+    depends_on:
+      - prometheus
+
+volumes:
+  grafana-data:

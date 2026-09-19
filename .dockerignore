@@ -16,5 +16,10 @@ reports/
 
 # Docker files and docs
 Dockerfile
+docker-compose.yml
 .dockerignore
 README.md
+
+# Prometheus/Grafana config: mounted into their own containers, not this image
+prometheus/
+grafana/

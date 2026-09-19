@@ -1,0 +1,100 @@
+{
+  "uid": "network-log-analyzer",
+  "title": "Network Log Analyzer",
+  "description": "Analyzer runs, severity breakdown, error rate and processing time, scraped from the FastAPI service's /metrics endpoint.",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "tags": ["network-log-analyzer"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Total Runs",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "analyzer_runs_total", "legendFormat": "runs" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "title": "Current Error Rate",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "log_error_rate_percent", "legendFormat": "error rate" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 20 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Seconds Since Last Run",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "time() - analyzer_last_run_timestamp_seconds", "legendFormat": "staleness" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "title": "Average Processing Duration",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "analyzer_processing_seconds_sum / analyzer_processing_seconds_count",
+          "legendFormat": "avg duration"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "title": "Log Severity Counts",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "log_info_total", "legendFormat": "INFO" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "log_warning_total", "legendFormat": "WARNING" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "log_error_total", "legendFormat": "ERROR" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "log_critical_total", "legendFormat": "CRITICAL" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "title": "Lines Processed vs. Parse Errors",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 6 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "logs_processed_total", "legendFormat": "lines processed" },
+        { "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "log_parse_errors_total", "legendFormat": "parse errors" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    }
+  ]
+}

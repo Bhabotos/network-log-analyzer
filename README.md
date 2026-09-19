@@ -34,7 +34,8 @@ Structured result:
 - **Docker image** that runs as a non-root user and works with mounted `logs/` and `reports/` folders
 - **Prometheus metrics** for lines processed, counts per severity, parse failures, run count and run duration, written to a file or served at `/metrics`
 - **FastAPI web service** to trigger analyses, fetch the latest reports and scrape metrics over HTTP, with interactive docs at `/docs`
-- **157 automated tests** with pytest
+- **Prometheus + Grafana** via Docker Compose: continuous scraping and a pre-provisioned dashboard on top of the existing metrics
+- **164 automated tests** with pytest
 
 ## Architecture
 
@@ -72,8 +73,8 @@ The analysis returns a plain dictionary. The terminal summary and the HTML repor
 - prometheus-client
 - FastAPI, Uvicorn
 - `re`, `argparse`, `configparser`, `logging` (Python standard library)
-- pytest, httpx2
-- Docker
+- pytest, httpx2, PyYAML
+- Docker, Docker Compose, Prometheus, Grafana
 
 ## Project Structure
 
@@ -94,13 +95,21 @@ network-log-analyzer/
 │   ├── test_config.py         # configuration file
 │   ├── test_logging.py        # application logging
 │   ├── test_metrics.py        # Prometheus metrics
-│   └── test_api.py            # FastAPI endpoints
+│   ├── test_api.py            # FastAPI endpoints
+│   └── test_observability.py  # Prometheus scrape config + Grafana dashboard
 ├── logs/
 │   └── router.log             # sample input (application.log is generated here)
 ├── reports/                   # generated CSV and HTML reports
+├── prometheus/
+│   └── prometheus.yml         # scrape config (targets the api service)
+├── grafana/
+│   ├── provisioning/
+│   │   ├── datasources/prometheus.yml
+│   │   └── dashboards/dashboard.yml
+│   └── dashboards/network-log-analyzer.json
 ├── config.ini                 # default settings
 ├── Dockerfile
-├── docker-compose.yml         # api + analyzer (CLI) services, same image
+├── docker-compose.yml         # api + analyzer + prometheus + grafana
 ├── .dockerignore
 ├── requirements.txt           # runtime dependencies
 ├── requirements-dev.txt       # runtime + pytest
@@ -329,6 +338,19 @@ docker compose --profile cli run --rm analyzer --log logs/router.log
 
 (`analyzer` is behind the `cli` profile so a plain `docker compose up` only starts the long-running `api` service, not a one-shot job.)
 
+## Observability: Prometheus + Grafana
+
+`docker-compose.yml` also runs a Prometheus server that scrapes the API's `/metrics` continuously, and a Grafana dashboard on top of it — so the metrics from [Prometheus Metrics](#prometheus-metrics) above become a history you can actually watch, not just a snapshot from one `curl`.
+
+```bash
+docker compose up -d api prometheus grafana
+```
+
+- **Prometheus** — `http://127.0.0.1:9090` (override with `PROMETHEUS_PORT`). Configured by `prometheus/prometheus.yml`, which scrapes `api:8000/metrics` every 15s. Check `http://127.0.0.1:9090/targets` to confirm the scrape is `UP`.
+- **Grafana** — `http://127.0.0.1:3000` (override with `GRAFANA_PORT`), default login `admin` / `admin` (change `GRAFANA_ADMIN_PASSWORD` before exposing it beyond localhost). The Prometheus datasource and a "Network Log Analyzer" dashboard are auto-provisioned from `grafana/provisioning/` and `grafana/dashboards/` — no manual setup.
+
+The dashboard has 6 panels, all reading the same metrics `analyzer_metrics.py` already defines (no new instrumentation): total runs, current error rate, seconds since the last run, average processing duration, log counts per severity over time, and lines processed vs. parse errors over time. Trigger a few analyses (`docker compose --profile cli run --rm analyzer --log logs/router.log`, or `POST /analyze`) and the panels will show data on the next 15s scrape.
+
 ## Testing
 
 ```bash
@@ -337,7 +359,7 @@ pytest
 ```
 
 ```
-157 passed in 2.43s
+164 passed in 2.43s
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the same tests and builds the Docker image on every push and pull request.
@@ -408,9 +430,10 @@ date,time,severity,ip,message
 - [x] GitHub Actions to run the tests and build the Docker image on every push
 - [x] Web API to trigger analyses and fetch reports over HTTP
 - [x] Docker Compose setup for the API, alongside the existing CLI
+- [x] Prometheus scrape configuration and a Grafana dashboard
 - [ ] Handle a log with no valid lines (currently it stops with a `KeyError`, which is logged)
 - [ ] Support more log formats and configurable failure keywords
 - [ ] Filter by date and time range
-- [ ] Prometheus scrape configuration and Grafana dashboards (as an added Compose service)
+- [ ] Alerting rules on top of the Prometheus metrics
 - [ ] File upload for `/analyze` instead of a server-side path
 - [ ] Add a licence

@@ -33,7 +33,8 @@ Structured result:
 - **Input validation** with clear errors and exit codes
 - **Docker image** that runs as a non-root user and works with mounted `logs/` and `reports/` folders
 - **Prometheus metrics** for lines processed, counts per severity, parse failures, run count and run duration, written to a file or served at `/metrics`
-- **142 automated tests** with pytest
+- **FastAPI web service** to trigger analyses, fetch the latest reports and scrape metrics over HTTP, with interactive docs at `/docs`
+- **157 automated tests** with pytest
 
 ## Architecture
 
@@ -69,8 +70,9 @@ The analysis returns a plain dictionary. The terminal summary and the HTML repor
 - Python 3.14 (pandas 3.x requires Python 3.11 or newer)
 - pandas
 - prometheus-client
+- FastAPI, Uvicorn
 - `re`, `argparse`, `configparser`, `logging` (Python standard library)
-- pytest
+- pytest, httpx2
 - Docker
 
 ## Project Structure
@@ -79,7 +81,8 @@ The analysis returns a plain dictionary. The terminal summary and the HTML repor
 network-log-analyzer/
 ├── src/
 │   ├── log_analyzer.py        # parsing, analysis, reports, CLI, logging
-│   └── analyzer_metrics.py    # Prometheus metrics
+│   ├── analyzer_metrics.py    # Prometheus metrics
+│   └── api.py                 # FastAPI web service
 ├── tests/
 │   ├── data/sample.log        # small log used by the tests
 │   ├── conftest.py            # shared fixtures and test isolation
@@ -90,7 +93,8 @@ network-log-analyzer/
 │   ├── test_cli.py            # arguments, validation, end-to-end runs
 │   ├── test_config.py         # configuration file
 │   ├── test_logging.py        # application logging
-│   └── test_metrics.py        # Prometheus metrics
+│   ├── test_metrics.py        # Prometheus metrics
+│   └── test_api.py            # FastAPI endpoints
 ├── logs/
 │   └── router.log             # sample input (application.log is generated here)
 ├── reports/                   # generated CSV and HTML reports
@@ -260,6 +264,49 @@ analyzer_processing_seconds_count 1.0
 log_error_rate_percent 27.27272727272727
 ```
 
+## Web API
+
+A FastAPI service wraps the same analysis code so it can be triggered over HTTP instead of the command line, and so Prometheus can scrape `/metrics` continuously (the CLI's `--metrics-port` only serves one run before exiting).
+
+Start it locally:
+
+```bash
+uvicorn api:app --app-dir src --host 127.0.0.1 --port 8000
+```
+
+Interactive docs (Swagger UI) are then at `http://127.0.0.1:8000/docs`.
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/health` | GET | Liveness/readiness check |
+| `/analyze` | POST | Run the analyzer on a log file, return the JSON summary |
+| `/reports/csv` | GET | Return the most recently generated CSV report |
+| `/reports/html` | GET | Return the most recently generated HTML report |
+| `/metrics` | GET | Prometheus metrics in text format, for continuous scraping |
+
+`POST /analyze` body:
+
+```json
+{
+  "log_path": "logs/router.log",
+  "severity": "ERROR",
+  "output": "reports/log_report.csv",
+  "html_output": "reports/network_log_report.html"
+}
+```
+
+Only `log_path` is required; `severity`, `output` and `html_output` default the same way the CLI's `--severity`, `--output` and `--html-output` do.
+
+```bash
+curl -X POST http://127.0.0.1:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"log_path": "logs/router.log"}'
+
+curl http://127.0.0.1:8000/metrics
+```
+
+The API is not wired into the Dockerfile yet (its `ENTRYPOINT` still runs the CLI); running it in Docker means overriding the entrypoint, e.g. `docker run --rm --entrypoint uvicorn -p 8000:8000 network-log-analyzer api:app --app-dir src --host 0.0.0.0 --port 8000`. A dedicated Docker Compose setup for the API is on the roadmap below.
+
 ## Testing
 
 ```bash
@@ -268,7 +315,7 @@ pytest
 ```
 
 ```
-142 passed in 2.43s
+157 passed in 2.43s
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the same tests and builds the Docker image on every push and pull request.
@@ -337,10 +384,11 @@ date,time,severity,ip,message
 ## Future Roadmap
 
 - [x] GitHub Actions to run the tests and build the Docker image on every push
+- [x] Web API to trigger analyses and fetch reports over HTTP
 - [ ] Handle a log with no valid lines (currently it stops with a `KeyError`, which is logged)
 - [ ] Support more log formats and configurable failure keywords
 - [ ] Filter by date and time range
 - [ ] Prometheus scrape configuration and Grafana dashboards
-- [ ] Docker Compose setup
-- [ ] Web API for uploading logs
+- [ ] Docker Compose setup (API + Prometheus + Grafana)
+- [ ] File upload for `/analyze` instead of a server-side path
 - [ ] Add a licence

@@ -20,6 +20,8 @@ docker-compose.yml
 .dockerignore
 README.md
 
-# Prometheus/Grafana config: mounted into their own containers, not this image
+# Prometheus/Grafana/Alertmanager config: mounted into their own containers,
+# not this image
 prometheus/
 grafana/
+alertmanager/

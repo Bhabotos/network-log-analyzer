@@ -35,7 +35,8 @@ Structured result:
 - **Prometheus metrics** for lines processed, counts per severity, parse failures, run count and run duration, written to a file or served at `/metrics`
 - **FastAPI web service** to trigger analyses, fetch the latest reports and scrape metrics over HTTP, with interactive docs at `/docs`
 - **Prometheus + Grafana** via Docker Compose: continuous scraping and a pre-provisioned dashboard on top of the existing metrics
-- **164 automated tests** with pytest
+- **Alerting** via Prometheus alerting rules + Alertmanager: high error rate, stale/no runs, parse errors and CRITICAL events
+- **174 automated tests** with pytest
 
 ## Architecture
 
@@ -74,7 +75,7 @@ The analysis returns a plain dictionary. The terminal summary and the HTML repor
 - FastAPI, Uvicorn
 - `re`, `argparse`, `configparser`, `logging` (Python standard library)
 - pytest, httpx2, PyYAML
-- Docker, Docker Compose, Prometheus, Grafana
+- Docker, Docker Compose, Prometheus, Grafana, Alertmanager
 
 ## Project Structure
 
@@ -96,20 +97,24 @@ network-log-analyzer/
 │   ├── test_logging.py        # application logging
 │   ├── test_metrics.py        # Prometheus metrics
 │   ├── test_api.py            # FastAPI endpoints
-│   └── test_observability.py  # Prometheus scrape config + Grafana dashboard
+│   ├── test_observability.py  # Prometheus scrape config + Grafana dashboard
+│   └── test_alerting.py       # alert rules + Alertmanager config
 ├── logs/
 │   └── router.log             # sample input (application.log is generated here)
 ├── reports/                   # generated CSV and HTML reports
 ├── prometheus/
-│   └── prometheus.yml         # scrape config (targets the api service)
+│   ├── prometheus.yml         # scrape config (targets the api service)
+│   └── alerts.yml             # alerting rules
 ├── grafana/
 │   ├── provisioning/
 │   │   ├── datasources/prometheus.yml
 │   │   └── dashboards/dashboard.yml
 │   └── dashboards/network-log-analyzer.json
+├── alertmanager/
+│   └── alertmanager.yml       # routing config, no real receiver configured
 ├── config.ini                 # default settings
 ├── Dockerfile
-├── docker-compose.yml         # api + analyzer + prometheus + grafana
+├── docker-compose.yml         # api + analyzer + prometheus + grafana + alertmanager
 ├── .dockerignore
 ├── requirements.txt           # runtime dependencies
 ├── requirements-dev.txt       # runtime + pytest
@@ -321,12 +326,12 @@ curl http://127.0.0.1:8000/metrics
 
 ```bash
 docker compose up -d api
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8010/health
 docker compose logs -f api      # follow logs
 docker compose down             # stop and remove
 ```
 
-- The container listens on `0.0.0.0` inside Docker but is only published to `127.0.0.1` on the host by default. Set `API_PORT` to publish on a different host port, e.g. `API_PORT=8080 docker compose up -d api`.
+- The container listens on `0.0.0.0` inside Docker but is only published to `127.0.0.1` on the host by default (default host port `8010`, chosen to avoid colliding with other local projects — override with `API_PORT`, e.g. `API_PORT=8020 docker compose up -d api`).
 - `./logs` and `./reports` are mounted the same way as the plain `docker run` CLI usage above, so files land on your host.
 - The service has a `HEALTHCHECK` that polls `GET /health` (visible in `docker compose ps`).
 
@@ -346,10 +351,34 @@ docker compose --profile cli run --rm analyzer --log logs/router.log
 docker compose up -d api prometheus grafana
 ```
 
-- **Prometheus** — `http://127.0.0.1:9090` (override with `PROMETHEUS_PORT`). Configured by `prometheus/prometheus.yml`, which scrapes `api:8000/metrics` every 15s. Check `http://127.0.0.1:9090/targets` to confirm the scrape is `UP`.
-- **Grafana** — `http://127.0.0.1:3000` (override with `GRAFANA_PORT`), default login `admin` / `admin` (change `GRAFANA_ADMIN_PASSWORD` before exposing it beyond localhost). The Prometheus datasource and a "Network Log Analyzer" dashboard are auto-provisioned from `grafana/provisioning/` and `grafana/dashboards/` — no manual setup.
+- **Prometheus** — `http://127.0.0.1:9091` (override with `PROMETHEUS_PORT`). Configured by `prometheus/prometheus.yml`, which scrapes `api:8000/metrics` every 15s. Check `http://127.0.0.1:9091/targets` to confirm the scrape is `UP`.
+- **Grafana** — `http://127.0.0.1:3010` (override with `GRAFANA_PORT`), default login `admin` / `admin` (change `GRAFANA_ADMIN_PASSWORD` before exposing it beyond localhost). The Prometheus datasource and a "Network Log Analyzer" dashboard are auto-provisioned from `grafana/provisioning/` and `grafana/dashboards/` — no manual setup.
+
+Default host ports (`8010`/`9091`/`3010`/`9094` for api/prometheus/grafana/alertmanager) are chosen to avoid colliding with other common local stacks (e.g. a Grafana/Prometheus pair already running on the standard `3000`/`9090`); override any of them with the matching `*_PORT` env var if these also collide on your machine.
 
 The dashboard has 6 panels, all reading the same metrics `analyzer_metrics.py` already defines (no new instrumentation): total runs, current error rate, seconds since the last run, average processing duration, log counts per severity over time, and lines processed vs. parse errors over time. Trigger a few analyses (`docker compose --profile cli run --rm analyzer --log logs/router.log`, or `POST /analyze`) and the panels will show data on the next 15s scrape.
+
+## Alerting
+
+Prometheus evaluates alerting rules on top of the same metrics and hands anything that fires to Alertmanager, so a real problem — or the analyzer silently going quiet — doesn't require someone to be staring at Grafana.
+
+```bash
+docker compose up -d api prometheus grafana alertmanager
+```
+
+- **Alertmanager** — `http://127.0.0.1:9094` (override with `ALERTMANAGER_PORT`). Configured by `alertmanager/alertmanager.yml`.
+- Rules live in `prometheus/prometheus.yml` (`rule_files` + `alerting.alertmanagers`, pointing at the `alertmanager` service) and `prometheus/alerts.yml`:
+
+| Alert | Condition | Severity |
+|---|---|---|
+| `HighErrorRate` | `log_error_rate_percent > 50` for 5m | warning |
+| `AnalyzerNotRunningRecently` | no completed run in over an hour, for 5m | warning |
+| `ParseErrorsDetected` | any unparseable lines in the last 15m | warning |
+| `CriticalLogEventsDetected` | any CRITICAL log event in the last 15m | critical |
+
+Check `http://127.0.0.1:9091/alerts` for each rule's current state (inactive/pending/firing), and `http://127.0.0.1:9094` for anything Alertmanager has received.
+
+**No real notification channel is configured.** The shipped receiver (`default`) has no Slack/webhook/email integration — alerts are visible in both UIs but nothing gets sent anywhere. `alertmanager/alertmanager.yml` has commented-out examples for wiring in a real one; replace the placeholder values with your own webhook URL, SMTP credentials, etc. before relying on this for real notifications.
 
 ## Testing
 
@@ -359,7 +388,7 @@ pytest
 ```
 
 ```
-164 passed in 2.43s
+174 passed in 2.43s
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the same tests and builds the Docker image on every push and pull request.
@@ -431,9 +460,10 @@ date,time,severity,ip,message
 - [x] Web API to trigger analyses and fetch reports over HTTP
 - [x] Docker Compose setup for the API, alongside the existing CLI
 - [x] Prometheus scrape configuration and a Grafana dashboard
+- [x] Alerting rules on top of the Prometheus metrics, via Alertmanager
 - [ ] Handle a log with no valid lines (currently it stops with a `KeyError`, which is logged)
 - [ ] Support more log formats and configurable failure keywords
 - [ ] Filter by date and time range
-- [ ] Alerting rules on top of the Prometheus metrics
+- [ ] A real notification receiver for Alertmanager (Slack/email/webhook)
 - [ ] File upload for `/analyze` instead of a server-side path
 - [ ] Add a licence

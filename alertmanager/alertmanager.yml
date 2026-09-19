@@ -1,0 +1,30 @@
+route:
+  receiver: default
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+# No real notification channel is configured by default (no webhook URL,
+# Slack token or SMTP credentials are shipped with this repo). Alerts still
+# show up in Prometheus (/alerts) and Alertmanager (/#/alerts) either way.
+#
+# To actually get notified, replace this receiver with a real one, e.g.:
+#
+# receivers:
+#   - name: default
+#     slack_configs:
+#       - api_url: "https://hooks.slack.com/services/REPLACE/WITH/YOUR-WEBHOOK"
+#         channel: "#network-alerts"
+#   - name: default
+#     webhook_configs:
+#       - url: "http://your-receiver:PORT/path"
+#   - name: default
+#     email_configs:
+#       - to: "noc@example.com"
+#         from: "alertmanager@example.com"
+#         smarthost: "smtp.example.com:587"
+#         auth_username: "REPLACE_ME"
+#         auth_password: "REPLACE_ME"
+receivers:
+  - name: default

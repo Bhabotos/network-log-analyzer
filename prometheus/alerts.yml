@@ -1,0 +1,38 @@
+groups:
+  - name: network-log-analyzer
+    rules:
+      - alert: HighErrorRate
+        expr: log_error_rate_percent > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Error rate is above 50%"
+          description: "log_error_rate_percent has been over 50% for 5 minutes ({{ $value | printf \"%.1f\" }}%)."
+
+      - alert: AnalyzerNotRunningRecently
+        expr: (time() - analyzer_last_run_timestamp_seconds) > 3600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No completed analyzer run in over an hour"
+          description: "It has been over an hour since analyzer_last_run_timestamp_seconds was last updated — the analyzer may have stopped running."
+
+      - alert: ParseErrorsDetected
+        expr: increase(log_parse_errors_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unparseable log lines detected"
+          description: "log_parse_errors_total increased in the last 15 minutes — some log lines did not match the expected format."
+
+      - alert: CriticalLogEventsDetected
+        expr: increase(log_critical_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CRITICAL log events detected"
+          description: "log_critical_total increased in the last 15 minutes — the analyzed logs contain at least one CRITICAL event."

@@ -1,5 +1,7 @@
 # Network Log Analyzer
 
+[![CI](https://github.com/Bhabotos/network-log-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/Bhabotos/network-log-analyzer/actions/workflows/ci.yml)
+
 A command-line tool that turns raw router log files into structured data, a network operations summary, and shareable CSV and HTML reports.
 
 ## Project Overview
@@ -212,6 +214,8 @@ pytest
 109 passed in 1.03s
 ```
 
+GitHub Actions (`.github/workflows/ci.yml`) runs the same tests and builds the Docker image on every push and pull request.
+
 The tests use a small log stored in `tests/data/`, write only to temporary folders, and never touch your real `config.ini`, `logs/` or `reports/`. They cover parsing, the DataFrame and filter, the analysis numbers, CSV and HTML output, CLI validation, configuration and logging.
 
 ## Example Output
@@ -275,7 +279,7 @@ date,time,severity,ip,message
 
 ## Future Roadmap
 
-- [ ] GitHub Actions to run the tests and build the Docker image on every push
+- [x] GitHub Actions to run the tests and build the Docker image on every push
 - [ ] Handle a log with no valid lines (currently it stops with a `KeyError`, which is logged)
 - [ ] Support more log formats and configurable failure keywords
 - [ ] Filter by date and time range

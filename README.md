@@ -100,6 +100,7 @@ network-log-analyzer/
 ├── reports/                   # generated CSV and HTML reports
 ├── config.ini                 # default settings
 ├── Dockerfile
+├── docker-compose.yml         # api + analyzer (CLI) services, same image
 ├── .dockerignore
 ├── requirements.txt           # runtime dependencies
 ├── requirements-dev.txt       # runtime + pytest
@@ -305,7 +306,28 @@ curl -X POST http://127.0.0.1:8000/analyze \
 curl http://127.0.0.1:8000/metrics
 ```
 
-The API is not wired into the Dockerfile yet (its `ENTRYPOINT` still runs the CLI); running it in Docker means overriding the entrypoint, e.g. `docker run --rm --entrypoint uvicorn -p 8000:8000 network-log-analyzer api:app --app-dir src --host 0.0.0.0 --port 8000`. A dedicated Docker Compose setup for the API is on the roadmap below.
+### Running the API in Docker
+
+`docker-compose.yml` runs the API from the same image as the CLI, without any changes to the `Dockerfile` — it just overrides the entrypoint for the `api` service (Compose's `entrypoint`/`command` keys), the same override shown above expressed as a reusable service instead of a one-off flag.
+
+```bash
+docker compose up -d api
+curl http://127.0.0.1:8000/health
+docker compose logs -f api      # follow logs
+docker compose down             # stop and remove
+```
+
+- The container listens on `0.0.0.0` inside Docker but is only published to `127.0.0.1` on the host by default. Set `API_PORT` to publish on a different host port, e.g. `API_PORT=8080 docker compose up -d api`.
+- `./logs` and `./reports` are mounted the same way as the plain `docker run` CLI usage above, so files land on your host.
+- The service has a `HEALTHCHECK` that polls `GET /health` (visible in `docker compose ps`).
+
+The existing CLI is also available through Compose, unchanged, for one-shot runs:
+
+```bash
+docker compose --profile cli run --rm analyzer --log logs/router.log
+```
+
+(`analyzer` is behind the `cli` profile so a plain `docker compose up` only starts the long-running `api` service, not a one-shot job.)
 
 ## Testing
 
@@ -385,10 +407,10 @@ date,time,severity,ip,message
 
 - [x] GitHub Actions to run the tests and build the Docker image on every push
 - [x] Web API to trigger analyses and fetch reports over HTTP
+- [x] Docker Compose setup for the API, alongside the existing CLI
 - [ ] Handle a log with no valid lines (currently it stops with a `KeyError`, which is logged)
 - [ ] Support more log formats and configurable failure keywords
 - [ ] Filter by date and time range
-- [ ] Prometheus scrape configuration and Grafana dashboards
-- [ ] Docker Compose setup (API + Prometheus + Grafana)
+- [ ] Prometheus scrape configuration and Grafana dashboards (as an added Compose service)
 - [ ] File upload for `/analyze` instead of a server-side path
 - [ ] Add a licence

@@ -1,0 +1,28 @@
+services:
+  # One-shot CLI run, same behavior as `docker run network-log-analyzer ...`.
+  # Example: docker compose run --rm analyzer --log logs/router.log
+  analyzer:
+    build: .
+    volumes:
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+    profiles: ["cli"]
+
+  # The FastAPI service, same image, entrypoint overridden to run uvicorn
+  # instead of the CLI. The Dockerfile itself is unchanged.
+  api:
+    build: .
+    entrypoint: ["uvicorn"]
+    command: ["api:app", "--app-dir", "src", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 5s
+      retries: 3

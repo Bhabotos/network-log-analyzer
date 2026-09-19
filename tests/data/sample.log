@@ -1,0 +1,8 @@
+2026-01-10 10:00:00 INFO System boot complete
+2026-01-10 10:01:00 ERROR BGP neighbor 10.0.0.1 is DOWN
+2026-01-10 10:02:00 ERROR BGP neighbor 10.0.0.1 is DOWN
+2026-01-10 10:03:00 ERROR Interface GigabitEthernet0/2 is DOWN
+2026-01-10 10:04:00 ERROR Authentication failure from 192.168.5.5
+2026-01-10 10:05:00 WARNING High CPU utilization detected: 91%
+2026-01-10 10:06:00 CRITICAL Power supply failure detected
+2026-01-10 10:07:00 INFO Interface GigabitEthernet0/2 is UP

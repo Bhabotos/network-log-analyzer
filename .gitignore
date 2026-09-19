@@ -1,0 +1,39 @@
+# --- Python ---
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# --- Test and coverage output ---
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Generated at run time (the folders are kept via .gitkeep) ---
+# Application log and reports are recreated on every run.
+# logs/router.log is the sample input and stays tracked.
+logs/*
+!logs/.gitkeep
+!logs/router.log
+reports/*
+!reports/.gitkeep
+
+# --- Environment-specific files and secrets ---
+.env
+.env.*
+!.env.example
+config.local.ini
+*.pem
+*.key
+
+# --- Editors, OS and temporary files ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.tmp
+*.bak

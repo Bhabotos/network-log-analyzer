@@ -1,0 +1,11 @@
+2026-09-19 08:01:12 INFO Router started successfully
+2026-09-19 08:02:15 INFO Interface GigabitEthernet0/1 is UP
+2026-09-19 08:05:33 WARNING High CPU utilization detected: 82%
+2026-09-19 08:07:44 ERROR Interface GigabitEthernet0/2 is DOWN
+2026-09-19 08:08:12 INFO Interface GigabitEthernet0/2 is UP
+2026-09-19 08:10:21 ERROR BGP neighbor 10.10.10.1 is DOWN
+2026-09-19 08:11:05 WARNING Memory utilization is 78%
+2026-09-19 08:15:42 ERROR Authentication failure from 192.168.1.50
+2026-09-19 08:17:33 INFO BGP neighbor 10.10.10.1 is UP
+2026-09-19 08:20:12 CRITICAL Power supply failure detected
+2026-09-19 08:21:45 WARNING Interface errors increasing on GigabitEthernet0/3

@@ -4,10 +4,15 @@ import html
 import logging
 import os
 import re
+import signal
 import sys
+import threading
+import time
 from datetime import datetime
 
 import pandas as pd
+
+from analyzer_metrics import AnalyzerMetrics, start_metrics_server, write_metrics_file
 
 # Pattern 1: split one log line into date, time, severity and message
 LOG_PATTERN = re.compile(
@@ -150,6 +155,17 @@ class LoggingArgumentParser(argparse.ArgumentParser):
         super().error(message)
 
 
+def port_number(text):
+    """argparse type: a TCP port between 1 and 65535."""
+    try:
+        port = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"invalid port: {text!r}")
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError(f"port must be between 1 and 65535: {port}")
+    return port
+
+
 def parse_arguments(argv=None, config=None):
     config = config or DEFAULT_CONFIG
     parser = LoggingArgumentParser(
@@ -184,6 +200,23 @@ def parse_arguments(argv=None, config=None):
         help="path of the configuration file (default: %(default)s)",
     )
 
+    parser.add_argument(
+        "--metrics-output",
+        help="write Prometheus metrics to this file, e.g. reports/metrics.prom "
+        "(default: no metrics file)",
+    )
+    parser.add_argument(
+        "--metrics-port",
+        type=port_number,
+        help="after the analysis, serve Prometheus metrics at http://ADDR:PORT/metrics "
+        "until stopped with Ctrl+C (default: off)",
+    )
+    parser.add_argument(
+        "--metrics-addr",
+        default="127.0.0.1",
+        help="address for --metrics-port; use 0.0.0.0 inside Docker (default: %(default)s)",
+    )
+
     args = parser.parse_args(argv)
 
     if not os.path.isfile(args.log):
@@ -194,6 +227,13 @@ def parse_arguments(argv=None, config=None):
 
     if os.path.abspath(args.html_output) == os.path.abspath(args.output):
         parser.error("--html-output and --output must be different files")
+
+    if args.metrics_output:
+        if os.path.isdir(args.metrics_output):
+            parser.error(f"--metrics-output must be a file, not a folder: {args.metrics_output}")
+        others = {os.path.abspath(args.output), os.path.abspath(args.html_output)}
+        if os.path.abspath(args.metrics_output) in others:
+            parser.error("--metrics-output must be different from --output and --html-output")
 
     return args
 
@@ -564,6 +604,49 @@ def run_analysis(args, config):
     html_content = build_html_report(summary, df, args.severity, generated_at)
     write_html_report(args.html_output, html_content)
 
+    return summary, total
+
+
+def export_metrics_file(metrics, path):
+    try:
+        write_metrics_file(metrics.registry, path)
+    except OSError as error:
+        logger.exception("Could not write metrics file %s", path)
+        print(f"Could not write metrics file: {error}")
+        sys.exit(1)
+
+    logger.info("Metrics file written: %s", path)
+    print()
+    print("Metrics file created successfully")
+    print(f"File: {path}")
+
+
+def wait_until_stopped():
+    """Block until Ctrl+C or docker stop (SIGINT / SIGTERM)."""
+    stop = threading.Event()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: stop.set())
+    stop.wait()
+
+
+def serve_metrics(metrics, port, addr):
+    try:
+        server = start_metrics_server(port, addr, metrics.registry)
+    except OSError as error:
+        logger.exception("Could not start metrics server on %s:%s", addr, port)
+        print(f"Could not start metrics server on {addr}:{port}: {error}")
+        sys.exit(1)
+
+    logger.info("Serving metrics on http://%s:%s/metrics", addr, port)
+    print()
+    print(f"Serving metrics at http://{addr}:{port}/metrics (Ctrl+C to stop)", flush=True)
+    try:
+        wait_until_stopped()
+    finally:
+        server.shutdown()
+        server.server_close()
+        logger.info("Metrics server stopped")
+
 
 def main(argv=None):
     config_path, config_was_given = find_config_path(argv)
@@ -591,13 +674,25 @@ def main(argv=None):
         args.log, args.severity, args.output, args.html_output,
     )
 
+    started = time.perf_counter()
     try:
-        run_analysis(args, config)
+        summary, lines_read = run_analysis(args, config)
     except Exception:
         logger.exception("Unexpected error")
         raise
 
+    # Phase 13: Prometheus metrics (only for a completed run, only if requested)
+    metrics = AnalyzerMetrics()
+    metrics.record_run(lines_read, summary, time.perf_counter() - started)
+    logger.debug("Metrics recorded for %d lines", lines_read)
+
+    if args.metrics_output:
+        export_metrics_file(metrics, args.metrics_output)
+
     logger.info("Application finished successfully")
+
+    if args.metrics_port:
+        serve_metrics(metrics, args.metrics_port, args.metrics_addr)
 
 
 if __name__ == "__main__":

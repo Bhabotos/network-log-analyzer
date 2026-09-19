@@ -32,7 +32,8 @@ Structured result:
 - **Application logging** to `logs/application.log` with DEBUG, INFO, WARNING and ERROR levels
 - **Input validation** with clear errors and exit codes
 - **Docker image** that runs as a non-root user and works with mounted `logs/` and `reports/` folders
-- **109 automated tests** with pytest
+- **Prometheus metrics** for lines processed, counts per severity, parse failures, run count and run duration, written to a file or served at `/metrics`
+- **142 automated tests** with pytest
 
 ## Architecture
 
@@ -67,6 +68,7 @@ The analysis returns a plain dictionary. The terminal summary and the HTML repor
 
 - Python 3.14 (pandas 3.x requires Python 3.11 or newer)
 - pandas
+- prometheus-client
 - `re`, `argparse`, `configparser`, `logging` (Python standard library)
 - pytest
 - Docker
@@ -76,7 +78,8 @@ The analysis returns a plain dictionary. The terminal summary and the HTML repor
 ```
 network-log-analyzer/
 ├── src/
-│   └── log_analyzer.py        # parsing, analysis, reports, CLI, logging
+│   ├── log_analyzer.py        # parsing, analysis, reports, CLI, logging
+│   └── analyzer_metrics.py    # Prometheus metrics
 ├── tests/
 │   ├── data/sample.log        # small log used by the tests
 │   ├── conftest.py            # shared fixtures and test isolation
@@ -86,7 +89,8 @@ network-log-analyzer/
 │   ├── test_reports.py        # CSV and HTML reports
 │   ├── test_cli.py            # arguments, validation, end-to-end runs
 │   ├── test_config.py         # configuration file
-│   └── test_logging.py        # application logging
+│   ├── test_logging.py        # application logging
+│   └── test_metrics.py        # Prometheus metrics
 ├── logs/
 │   └── router.log             # sample input (application.log is generated here)
 ├── reports/                   # generated CSV and HTML reports
@@ -128,6 +132,9 @@ This prints the analysis, writes `reports/log_report.csv` and `reports/network_l
 | `--output` | CSV report path | `reports/log_report.csv` |
 | `--html-output` | HTML report path | `reports/network_log_report.html` |
 | `--config` | Configuration file | `config.ini` |
+| `--metrics-output` | Write Prometheus metrics to this file | off |
+| `--metrics-port` | After the analysis, serve `/metrics` on this port until stopped | off |
+| `--metrics-addr` | Address for `--metrics-port` | `127.0.0.1` |
 
 Priority for every setting: command-line option, then `config.ini`, then the built-in default. Relative paths are relative to the folder you run the program from. The `--severity` filter applies to the detailed table, CSV and HTML table; the summary always covers the whole log.
 
@@ -203,6 +210,56 @@ $ python3 src/log_analyzer.py --log logs/router.log --severity DEBUG
 error: argument --severity: invalid choice: 'DEBUG' (choose from INFO, WARNING, ERROR, CRITICAL)
 ```
 
+## Prometheus Metrics
+
+The analyzer is a short-lived batch program, so Prometheus cannot scrape it while it runs. Metrics are therefore **opt-in** and can be exposed in two ways. Each run builds its own metrics, so the values describe that run only, and metrics are recorded only for a run that completes.
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `logs_processed_total` | Counter | Lines read from the input file |
+| `log_info_total`, `log_warning_total`, `log_error_total`, `log_critical_total` | Counter | Parsed lines per severity (always the whole log, even with `--severity`) |
+| `log_parse_errors_total` | Counter | Lines that did not match the expected format |
+| `analyzer_runs_total` | Counter | Completed runs |
+| `analyzer_processing_seconds` | Histogram | Time to process the log file |
+| `log_error_rate_percent` | Gauge | ERROR lines as a percentage of parsed lines |
+| `analyzer_last_run_timestamp_seconds` | Gauge | Unix time the last run completed |
+
+**Write a text file** (for the Prometheus node exporter's textfile collector, or just to inspect):
+
+```bash
+python3 src/log_analyzer.py --log logs/router.log --metrics-output reports/metrics.prom
+```
+
+**Serve `/metrics` over HTTP** (Prometheus can scrape it; press Ctrl+C to stop):
+
+```bash
+python3 src/log_analyzer.py --log logs/router.log --metrics-port 9108
+curl http://127.0.0.1:9108/metrics
+```
+
+In Docker the server must listen on all interfaces inside the container:
+
+```bash
+docker run --rm --user "$(id -u):$(id -g)" \
+  -v "$(pwd)/logs:/app/logs" -v "$(pwd)/reports:/app/reports" \
+  -p 127.0.0.1:9108:9108 \
+  network-log-analyzer --log logs/router.log --metrics-port 9108 --metrics-addr 0.0.0.0
+```
+
+Example (`reports/metrics.prom`, shortened):
+
+```
+logs_processed_total 11.0
+log_info_total 4.0
+log_warning_total 3.0
+log_error_total 3.0
+log_critical_total 1.0
+log_parse_errors_total 0.0
+analyzer_runs_total 1.0
+analyzer_processing_seconds_count 1.0
+log_error_rate_percent 27.27272727272727
+```
+
 ## Testing
 
 ```bash
@@ -211,7 +268,7 @@ pytest
 ```
 
 ```
-109 passed in 1.03s
+142 passed in 2.43s
 ```
 
 GitHub Actions (`.github/workflows/ci.yml`) runs the same tests and builds the Docker image on every push and pull request.
@@ -283,6 +340,7 @@ date,time,severity,ip,message
 - [ ] Handle a log with no valid lines (currently it stops with a `KeyError`, which is logged)
 - [ ] Support more log formats and configurable failure keywords
 - [ ] Filter by date and time range
+- [ ] Prometheus scrape configuration and Grafana dashboards
 - [ ] Docker Compose setup
 - [ ] Web API for uploading logs
 - [ ] Add a licence
